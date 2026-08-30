@@ -1,10 +1,13 @@
 package com.varwof.aic.jwt;
 
 import com.varwof.aic.AicException;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetAddress;
 import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.Security;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
@@ -32,6 +35,18 @@ class GoConformanceTest {
     private static final String CA_SPKI_B64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUV8M50RyNg+/0dDB3W4BxlCuujwGQoL3fXhfYPzAFYcF9Yq1q08uxt6RLlFPSWIcD/CL1MX4G1eP77SXgESzvA==";
     private static final String EXPECTED_KEY_HASH = "MLyIlu7VRcXu9I9Jx11jz9-SeUSTXIK6mSL8Xdlh2TY";
     private static final String EXPECTED_JKT = "ZsImqxs4j8LqGyAKM14ryFmbAtS4VMZODW-egCeIwzo";
+
+    @BeforeAll
+    static void ensureX509KeyFactory() {
+        // JDK 17+ SUN provider no longer registers "X.509" as a KeyFactory
+        // algorithm name (it provides DSA/RSA/EC/Ed25519 instead). If the
+        // default provider cannot serve X509EncodedKeySpec, register BC once.
+        try {
+            KeyFactory.getInstance("X.509");
+        } catch (NoSuchAlgorithmException e) {
+            Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
+        }
+    }
 
     private static PublicKey pubKey(String spkiB64) throws Exception {
         byte[] der = Base64.getDecoder().decode(spkiB64);

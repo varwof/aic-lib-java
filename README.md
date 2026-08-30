@@ -1,5 +1,10 @@
 # AIC SDK for Java
 
+> **Maintainers wanted.** This is an open, community-oriented SDK. We welcome
+> active maintainers for review, porting, packaging, and platform testing.
+> See [CONTRIBUTING.md](../../.github/CONTRIBUTING.md) (org-wide) and the
+> "Contributing" section below.
+
 Java implementation of the **AI Agent Identity Certificate (AIC)** RFC drafts,
 faithfully ported from the Go reference implementation
 ([`varwof/types`](../types) and [`varwof/types/aicjwt`](../types/aicjwt)):
@@ -12,6 +17,30 @@ faithfully ported from the Go reference implementation
 The test suite verifies **byte-exact DER output** against Go-generated vectors
 and includes **cross-language conformance** tokens produced and signed by the
 Go implementation. Builds on Bouncy Castle.
+
+## Why AIC?
+
+An ordinary X.509 certificate proves *who* an entity is; it says nothing about
+*what it is allowed to do*. AI agents act on behalf of humans, often across
+organizational boundaries, so a relying party needs to know not just the
+agent's identity but also: which human (principal) delegated to this agent,
+what capabilities were granted and under what constraints, and that the grant
+is fresh and cannot be replayed. AIC (Authorization in Certificates) encodes
+that evidence into the certificate itself (X.509v3 extension) or into a JWT
+profile, so a gateway can decide permission locally and offline.
+
+## Language matrix
+
+AIC is implemented in five languages, all byte-compatible with the Go
+reference:
+
+| Language | Repository | Status |
+|----------|-----------|--------|
+| Go (reference) | [varwof/types](https://github.com/varwof/types) | complete |
+| TypeScript | [varwof/aic-jwt](https://github.com/varwof/aic-jwt) | complete (18 tests) |
+| C / OpenSSL | [varwof/openaic](https://github.com/varwof/openaic) | complete (13 tests) |
+| Java | [**this repo (aic-lib-java)**](https://github.com/varwof/aic-lib-java) | complete (69 tests) |
+| C# | [varwof/aic-lib-dotnet](https://github.com/varwof/aic-lib-dotnet) | complete (69 tests) |
 
 ## Status
 
@@ -126,6 +155,19 @@ See [docs/jwt-profile.md](docs/jwt-profile.md) for the full 11-step pipeline.
 - [docs/cert-profile.md](docs/cert-profile.md) — X.509/ASN.1 profile
 - [docs/jwt-profile.md](docs/jwt-profile.md) — AIC-JWT profile
 - [docs/conformance.md](docs/conformance.md) — cross-language consistency
+
+## Contributing
+
+This SDK is community-maintained. You do not need to be a core team member
+to contribute:
+
+- **Report bugs / request features** — open an issue; bug reports do not
+  require a contributor agreement.
+- **Send a patch** — code contributions go through pull requests and require a
+  DCO sign-off (a `Signed-off-by` line in the commit message). The org-wide
+  process is in [CONTRIBUTING.md](../../.github/CONTRIBUTING.md).
+- **Become a maintainer** — after a few merged PRs, ask for collaborator
+  access; regular reviewers are invited to take ownership of this SDK.
 
 ## License
 

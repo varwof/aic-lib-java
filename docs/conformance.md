@@ -30,7 +30,7 @@ key-binding hashes and JWK thumbprints all match.
 |----------|-----------|
 | Go (reference) | [`varwof/types`](../../types) / [`varwof/types/aicjwt`](../../types/aicjwt) |
 | C (OpenSSL) | [`varwof/openaic`](../../openaic) |
-| C# | [`varwof/aic-sdk-dotnet`](../../aic-sdk-dotnet) |
+| C# | [`varwof/aic-lib-dotnet`](../../aic-lib-dotnet) |
 
 ## Porting checklist (used for the C# port)
 
@@ -40,3 +40,21 @@ key-binding hashes and JWK thumbprints all match.
 - `GeneralizedTime` encoding (seconds precision).
 - RSA-PSS salt length = digest.
 - JOSE algorithm allowlist & MAY-level exclusions.
+
+
+## JDK 17+ X.509 KeyFactory note
+
+`KeyFactory.getInstance("X.509")` (with a plain algorithm name) was valid on
+JDK 8 and earlier. On JDK 17+, the SUN provider registers KeyFactory
+implementations per concrete algorithm (DSA, RSA, EC, Ed25519, ...) and no
+longer registers `"X.509"` as an algorithm name, so that call throws
+`NoSuchAlgorithmException`.
+
+The test suite handles this by registering the BouncyCastle provider once in
+`@BeforeAll` when the default provider cannot serve `X509EncodedKeySpec`.
+Applications using this library on JDK 17+ should do the same, or resolve the
+concrete algorithm key factory (e.g. `KeyFactory.getInstance("EC")`) with the
+`X509EncodedKeySpec` — the spec carries the SubjectPublicKeyInfo and the
+factory derives the algorithm from it.
+
+Verified on: JDK 17.0.18, JDK 21.0.12 (69/69 tests green).
