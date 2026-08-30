@@ -30,10 +30,6 @@ public final class Oids {
 
     /** PrincipalAuthorization extension OID : 1.3.6.1.4.1.66257.1.2 */
     public static final ASN1ObjectIdentifier PRINCIPAL_AUTHORIZATION = VARWOF.branch("1.2");
-    /** Capability scheme registry (reserved) : 1.3.6.1.4.1.66257.1.3 */
-    public static final ASN1ObjectIdentifier CAPABILITY_SCHEME_REGISTRY = VARWOF.branch("1.3");
-    /** Vendor extension registry (reserved) : 1.3.6.1.4.1.66257.1.4 */
-    public static final ASN1ObjectIdentifier VENDOR_EXTENSION_REGISTRY = VARWOF.branch("1.4");
     /** Renewal token : 1.3.6.1.4.1.66257.1.6 */
     public static final ASN1ObjectIdentifier RENEWAL_TOKEN = VARWOF.branch("1.6");
 
