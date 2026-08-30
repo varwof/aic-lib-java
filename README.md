@@ -172,3 +172,7 @@ to contribute:
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+## Community
+
+Questions, feedback, and port status: [AIC Discussions](https://github.com/varwof/aic-jwt/discussions)
