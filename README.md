@@ -5,6 +5,10 @@
 > See [CONTRIBUTING.md](../../.github/CONTRIBUTING.md) (org-wide) and the
 > "Contributing" section below.
 
+> ⚠️ **Preview** — Not for production use. APIs and features may change before
+> official release. The AIC drafts are Experimental; no independent security
+> audit has been performed.
+
 Java implementation of the **AI Agent Identity Certificate (AIC)** RFC drafts,
 faithfully ported from the Go reference implementation
 ([`varwof/types`](../types) and [`varwof/types/aicjwt`](../types/aicjwt)):
@@ -38,7 +42,7 @@ reference:
 |----------|-----------|--------|
 | Go (reference) | [varwof/types](https://github.com/varwof/types) | complete |
 | TypeScript | [varwof/aic-jwt](https://github.com/varwof/aic-jwt) | complete (18 tests) |
-| C / OpenSSL | [varwof/openaic](https://github.com/varwof/openaic) | complete (13 tests) |
+| C / OpenSSL | [varwof/openaic](https://github.com/varwof/openaic) | experimental (13 tests) |
 | Java | [**this repo (aic-lib-java)**](https://github.com/varwof/aic-lib-java) | complete (69 tests) |
 | C# | [varwof/aic-lib-dotnet](https://github.com/varwof/aic-lib-dotnet) | complete (69 tests) |
 
