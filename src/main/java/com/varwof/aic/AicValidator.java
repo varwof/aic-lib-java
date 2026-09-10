@@ -28,6 +28,9 @@ public final class AicValidator {
         if (aic == null) {
             throw new AicException("aic: nil");
         }
+        if (aic.version() != 1 && aic.version() != 2) {
+            throw new AicException("aic: version " + aic.version() + " unsupported, must be 1 or 2");
+        }
         if (aic.agentId().length() < 1 || aic.agentId().length() > 256) {
             throw new AicException("aic: agentId length " + aic.agentId().length() + ": must be 1-256");
         }

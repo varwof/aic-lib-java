@@ -4,6 +4,7 @@ import com.varwof.aic.AicException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -75,14 +76,16 @@ public final class Validator {
     public static final class Decision {
         public final boolean permit;
         public final String actor;
+        public final String executor;
         public final String principal;
         public final List<Claims.Capability> capabilities;
         public final List<String> notes;
 
-        public Decision(boolean permit, String actor, String principal,
+        public Decision(boolean permit, String actor, String executor, String principal,
                         List<Claims.Capability> capabilities, List<String> notes) {
             this.permit = permit;
             this.actor = actor;
+            this.executor = executor;
             this.principal = principal;
             this.capabilities = capabilities;
             this.notes = notes;
@@ -132,7 +135,6 @@ public final class Validator {
         }
 
         // ---- Step 1 (cont.): parse payload only after the signature verifies ----
-        // Matches Go, which defers json.Unmarshal(pb, &outer) until after VerifyCompact.
         Claims.OuterClaims outer;
         try {
             outer = parseOuter(pb);
@@ -261,12 +263,16 @@ public final class Validator {
             }
         }
 
-        // ---- Decision ----
+        // ---- Decision (Go semantics) ----
         String actor = outer.sub;
+        String executor = outer.sub;
         if (MODE_REPRESENTATIVE.equals(outer.aic.delegationMode)) {
             actor = outer.aic.principal.id;
+            if (outer.act != null) {
+                executor = outer.act.sub;
+            }
         }
-        return new Decision(true, actor, outer.aic.principal.id, outer.aic.capabilities, notes);
+        return new Decision(true, actor, executor, outer.aic.principal.id, outer.aic.capabilities, notes);
     }
 
     /** Validates a JOSE header against the expected typ and algorithm allowlist. */
@@ -365,9 +371,32 @@ public final class Validator {
         }
     }
 
+    /**
+     * Full -01 DA required claims check, matching Go checkDARequired.
+     */
     private static void checkDaRequired(Claims.DaClaims d) {
-        if (d.ver != 1) {
-            throw new AicException("DA ver must be 1");
+        if (d.ver != 2) {
+            throw new AicException("DA ver must be 2");
+        }
+        if (d.iss == null || d.iss.isEmpty() || d.iss.length() > 256) {
+            throw new AicException("DA iss required, 1..256 chars");
+        }
+        if (d.sub == null || d.sub.isEmpty() || d.sub.length() > 256) {
+            throw new AicException("DA sub required, 1..256 chars");
+        }
+        if (d.aud == null || d.aud.size() == 0) {
+            throw new AicException("DA aud required");
+        }
+        for (int i = 0; i < d.aud.size(); i++) {
+            if (d.aud.get(i) == null || d.aud.get(i).isEmpty()) {
+                throw new AicException("DA aud must not contain empty strings");
+            }
+        }
+        if (d.exp == 0) {
+            throw new AicException("DA exp required");
+        }
+        if (d.jti == null || d.jti.isEmpty() || d.jti.length() > 128) {
+            throw new AicException("DA jti required, 1..128 chars");
         }
         if (d.agentId == null || d.agentId.isEmpty() || d.agentId.length() > 256) {
             throw new AicException("DA agent_id required, 1..256 chars");
@@ -411,6 +440,12 @@ public final class Validator {
         if (d.nonce == null || d.nonce.isEmpty()) {
             throw new AicException("DA nonce required");
         }
+        if (!d.jti.equals(d.nonce)) {
+            throw new AicException("DA jti must equal nonce");
+        }
+        if (d.iat != 0 && d.iat != d.ts) {
+            throw new AicException("DA iat must equal ts when present");
+        }
     }
 
     /** Validates a DA JWT in isolation: header, claims, signature, binding, nonce. */
@@ -444,6 +479,41 @@ public final class Validator {
             throw new AicException("DA payload malformed: " + ex.getMessage());
         }
         checkDaRequired(da);
+        // exp == ts + requested_lifetime
+        long expectedExp = da.ts + (long) da.requestedLifetime;
+        if (da.exp != expectedExp) {
+            throw new AicException("DA exp " + da.exp + " must equal ts+requested_lifetime " + expectedExp);
+        }
+        // DA expiry timeliness
+        if (opts.now.getEpochSecond() > da.exp) {
+            throw new AicException("DA expired (exp " + da.exp + ")");
+        }
+        // iss == principal.SubjectID()
+        String subjectId = da.principal.subjectId();
+        if (!da.iss.equals(subjectId)) {
+            throw new AicException("DA iss \"" + da.iss + "\" != principal \"" + subjectId + "\"");
+        }
+        // mode-dependent sub
+        switch (da.delegationMode) {
+            case MODE_AUTHORIZED -> {
+                if (!da.sub.equals(da.agentId)) {
+                    throw new AicException("authorized mode: DA sub \"" + da.sub
+                            + "\" must be the agent \"" + da.agentId + "\"");
+                }
+            }
+            case MODE_REPRESENTATIVE -> {
+                if (!da.sub.equals(subjectId)) {
+                    throw new AicException("representative mode: DA sub \"" + da.sub
+                            + "\" must be the resource owner \"" + subjectId + "\"");
+                }
+            }
+        }
+        // DA freshness: now - ts <= requested_lifetime
+        long nowSeconds = opts.now.getEpochSecond();
+        if (nowSeconds - da.ts > da.requestedLifetime) {
+            throw new AicException("DA ts " + da.ts + " is stale (beyond requested_lifetime "
+                    + da.requestedLifetime + ")");
+        }
         PublicKey pub = resolvePrincipalKey(da.principal, hdr.kid, opts);
         try {
             Jws.verifyCompact(daToken, hdr.alg, pub);
@@ -487,6 +557,15 @@ public final class Validator {
         if (opts.requireJtiNonceMatch && !outer.jti.equals(da.nonce)) {
             throw new AicException("outer jti does not match DA nonce");
         }
+        // outer.exp > da.exp rejected
+        if (outer.exp > da.exp) {
+            throw new AicException("outer exp " + outer.exp + " exceeds DA exp " + da.exp);
+        }
+        // da.aud must contain outer.iss
+        if (!da.aud.contains(outer.iss)) {
+            throw new AicException("DA aud " + da.aud + " does not include outer iss \"" + outer.iss + "\"");
+        }
+        // outer lifetime must not exceed DA requested_lifetime
         if (outer.exp - outer.iat > da.requestedLifetime) {
             throw new AicException("token lifetime " + (outer.exp - outer.iat)
                     + " exceeds DA requested_lifetime " + da.requestedLifetime);
@@ -521,10 +600,39 @@ public final class Validator {
         throw new AicException("principal key not resolvable (kid \"" + kid + "\")");
     }
 
+    /**
+     * Mode-dependent consistency checks between outer and DA.
+     * Go checkConsistency.
+     */
     private static void checkConsistency(Claims.OuterClaims o, Claims.DaClaims da) {
-        if (!da.agentId.equals(o.sub)) {
-            throw new AicException("DA agent_id \"" + da.agentId + "\" != outer sub \"" + o.sub + "\"");
+        switch (da.delegationMode) {
+            case MODE_REPRESENTATIVE -> {
+                // outer.sub == da.sub == principal.SubjectID()
+                String subjectId = da.principal.subjectId();
+                if (!o.sub.equals(da.sub) || !o.sub.equals(subjectId)) {
+                    throw new AicException("representative mode: outer sub \"" + o.sub
+                            + "\" must be the resource owner \"" + da.sub + "\"");
+                }
+                // outer.act must carry the agent
+                if (o.act == null || !o.act.sub.equals(da.agentId)) {
+                    throw new AicException("representative mode: outer act must carry the agent \""
+                            + da.agentId + "\"");
+                }
+            }
+            case MODE_AUTHORIZED -> {
+                // da.agentId == outer.sub
+                if (!da.agentId.equals(o.sub)) {
+                    throw new AicException("DA agent_id \"" + da.agentId
+                            + "\" != outer sub \"" + o.sub + "\"");
+                }
+                // outer.act must be absent
+                if (o.act != null) {
+                    throw new AicException("authorized mode: outer act must be absent");
+                }
+            }
+            default -> throw new AicException("DA delegation_mode invalid");
         }
+        // JSON-equality checks (principal, delegation_mode, capabilities, constraints)
         if (!JwtJson.jsonEqual(da.principal, o.aic.principal)) {
             throw new AicException("DA principal != outer aic.principal");
         }

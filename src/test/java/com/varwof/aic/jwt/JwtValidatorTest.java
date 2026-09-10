@@ -53,7 +53,13 @@ class JwtValidatorTest {
 
         Claims.Header daHdr = new Claims.Header("ES256", Validator.TYP_DA, "principal-1");
         Claims.DaClaims da = new Claims.DaClaims();
-        da.ver = 1;
+        da.ver = 2;
+        da.iss = REALM + ":" + PRINCIPAL_ID;
+        da.sub = AGENT_ID; // authorized mode: grant subject is the agent
+        da.aud = new Claims.Audience(List.of(ISSUER));
+        da.exp = IAT + 3600;
+        da.iat = IAT;
+        da.jti = p.nonce; // must equal nonce
         da.agentId = AGENT_ID;
         da.principal = new Claims.Principal(REALM, PRINCIPAL_ID, p.keyHash, "sha-256");
         da.reason = new Claims.Reason("DATA_ANALYSIS", "Scheduled production data analysis window");
@@ -303,7 +309,7 @@ class JwtValidatorTest {
         Claims.Header h = new Claims.Header("ES256", Validator.TYP_OUTER, "ca-2026-01");
         Claims.OuterClaims outer = new Claims.OuterClaims();
         outer.iss = ISSUER;
-        outer.sub = AGENT_ID;
+        outer.sub = REALM + ":" + PRINCIPAL_ID; // representative: outer.sub == principal.SubjectID()
         outer.aud = new Claims.Audience(List.of(AUDIENCE));
         outer.iat = IAT;
         outer.exp = IAT + 3600;
@@ -313,10 +319,17 @@ class JwtValidatorTest {
                 new Claims.Principal(REALM, PRINCIPAL_ID, p.keyHash, "sha-256"),
                 Validator.MODE_REPRESENTATIVE,
                 new ArrayList<>(List.of(new Claims.Capability("database", "query:DELETE"))));
+        outer.act = new Claims.Act(AGENT_ID); // representative: act carries the agent
         // representative outer also carries a DA in this profile
         Claims.Header daHdr = new Claims.Header("ES256", Validator.TYP_DA, "principal-1");
         Claims.DaClaims da = new Claims.DaClaims();
-        da.ver = 1;
+        da.ver = 2;
+        da.iss = REALM + ":" + PRINCIPAL_ID;
+        da.sub = REALM + ":" + PRINCIPAL_ID; // representative: sub == principal.SubjectID()
+        da.aud = new Claims.Audience(List.of(ISSUER));
+        da.exp = IAT + 3600;
+        da.iat = IAT;
+        da.jti = p.nonce;
         da.agentId = AGENT_ID;
         da.principal = new Claims.Principal(REALM, PRINCIPAL_ID, p.keyHash, "sha-256");
         da.reason = new Claims.Reason("DATA_ANALYSIS", "window");
@@ -330,6 +343,27 @@ class JwtValidatorTest {
         String tok = Jws.signCompact(serialize(h), serialize(outer), "ES256", p.issuer.getPrivate());
         AicException ex = assertThrows(AicException.class, () -> Validator.validate(tok, opts));
         assertTrue(ex.getMessage().contains("step6"), ex.getMessage());
+    }
+
+    @Test
+    void daVersion1Rejected() throws Exception {
+        Pair p = build();
+        Validator.VerifyOptions opts = fullOpts(p, IAT + 60);
+        Claims.Header daHdr = new Claims.Header("ES256", Validator.TYP_DA, "principal-1");
+        Claims.DaClaims da = new Claims.DaClaims();
+        da.ver = 1;
+        da.agentId = AGENT_ID;
+        da.principal = new Claims.Principal(REALM, PRINCIPAL_ID, p.keyHash, "sha-256");
+        da.reason = new Claims.Reason("DATA_ANALYSIS", "window");
+        da.capabilities = new ArrayList<>();
+        da.capabilities.add(capDatabase(100));
+        da.delegationMode = Validator.MODE_AUTHORIZED;
+        da.requestedLifetime = 3600;
+        da.ts = IAT;
+        da.nonce = p.nonce;
+        String daTok = Jws.signCompact(serialize(daHdr), serialize(da), "ES256", p.principal.getPrivate());
+        AicException ex = assertThrows(AicException.class, () -> Validator.validateDa(daTok, opts));
+        assertTrue(ex.getMessage().contains("ver must be 2"), ex.getMessage());
     }
 
     @Test
@@ -350,8 +384,9 @@ class JwtValidatorTest {
         Claims.DaClaims daParsed = JwtJson.MAPPER.readValue(Jws.parseCompact(da)[1], Claims.DaClaims.class);
         assertEquals("agent:db-analyst-01", daParsed.agentId);
 
-        // full pipeline must still reject: the fixture's hash_alg binding and
-        // nonce do not conform (placeholder SHA-256 of empty input)
+        // full pipeline must still reject: this fixture predates the -01
+        // profile (a ver=1 DA without the RFC 7523 claims) and is denied at
+        // step4 before any signature/binding concern is reachable
         Validator.VerifyOptions opts = new Validator.VerifyOptions();
         opts.now = Instant.ofEpochSecond(IAT + 60);
         opts.issuerKeys = Map.of("ca-2026-01", principalPub);

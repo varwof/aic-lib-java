@@ -128,6 +128,11 @@ public final class Claims {
             this.keyHash = keyHash;
             this.hashAlg = hashAlg;
         }
+
+        /** Canonical realm-qualified principal identifier (Go Principal.SubjectID). */
+        public String subjectId() {
+            return realm + ":" + id;
+        }
     }
 
     /** Capability is the unified container (draft Section 6.1). */
@@ -189,6 +194,18 @@ public final class Claims {
         }
     }
 
+    /** RFC 8693 actor member for representative-mode tokens. */
+    public static class Act {
+        public String sub;
+
+        public Act() {
+        }
+
+        public Act(String sub) {
+            this.sub = sub;
+        }
+    }
+
     /** Outer AIC-JWT payload (draft Section 5.1). */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     public static class OuterClaims {
@@ -206,6 +223,7 @@ public final class Claims {
         public AicClaims aic;
         public String da;
         public JsonNode authorizationDetails;
+        public Act act;
 
         public OuterClaims() {
         }
@@ -225,10 +243,16 @@ public final class Claims {
         }
     }
 
-    /** Inner DA JWT payload, the JSON equivalent of DelegationAuthTBS. */
+    /** Inner DA JWT payload, the JSON equivalent of DelegationAuthTBS (-01). */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     public static class DaClaims {
         public int ver;
+        public String iss;
+        public String sub;
+        public Audience aud;
+        public long exp;
+        public long iat;
+        public String jti;
         public String agentId;
         public Principal principal;
         public Reason reason;
@@ -240,6 +264,14 @@ public final class Claims {
         public String nonce;
 
         public DaClaims() {
+        }
+
+        /** Returns the RFC 7523 grant subject per delegation mode. */
+        public String oauthSubject() {
+            if (Validator.MODE_REPRESENTATIVE.equals(delegationMode)) {
+                return principal != null ? principal.realm + ":" + principal.id : null;
+            }
+            return agentId;
         }
     }
 
