@@ -7,6 +7,7 @@ import java.util.List;
 
 import static com.varwof.aic.TestHex.decodeHex;
 import static com.varwof.aic.TestHex.encodeHex;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,6 +70,26 @@ class DerVectorsTest {
             + "0446202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465";
 
     private static final String EXT_FIELD = "3013060a2b0601040184855103010101000402dead";
+
+    /**
+     * DA TBS (draft -01) with a ver=2 field and the AgentKeyBinding appended
+     * as {@code [1] EXPLICIT}: produced by the Go reference implementation
+     * from the conformance principal SPKI (see /tmp/gogen/fixtures.json).
+     */
+    private static final String TBS_V2
+            = "3081bf0201020c0d6167656e743a783530392d3031"
+            + "30190201000c08636f72702e636f6d0c087a68616e6773616e0400"
+            + "30220c0d444154415f414e414c595349530c1176322062696e64696e6720766563746f72"
+            + "300d300b0c0263610c056973737565"
+            + "020100"
+            + "02020e10"
+            + "180f32303235303831383036353332305a"
+            + "04100102030405060708090a0b0c0d0e0f10"
+            + "a13330310420" + "033239837394113f23b2c9981188256b48fab28f5702a35ef58c53b9bca25c01"
+            + "a00d300b0609608648016503040201";
+
+    private static final String PRINCIPAL_SPKI_B64
+            = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE44H9QvDhhiXgJ9P1JuZ6TQUHDTi0OHLvQxsM0J1QzTwi1PYliVWFEGIJJZasyRMPBeBHbb9i4W7ZngTyneoW4A==";
 
     private static byte[] keyHash() {
         return keyHash(0x00);
@@ -181,6 +202,25 @@ class DerVectorsTest {
     }
 
     @Test
+    void tbsV2MatchesGo() {
+        byte[] principalSpki = java.util.Base64.getDecoder().decode(PRINCIPAL_SPKI_B64);
+        AgentKeyBinding binding = DelegationAuthCrypto.makeAgentKeyBinding(principalSpki);
+        assertEquals(Oids.SHA256, binding.hashAlgo.oid);
+        assertArrayEquals(decodeHex("033239837394113f23b2c9981188256b48fab28f5702a35ef58c53b9bca25c01"),
+                binding.keyHash);
+        PrincipalUid pu = new PrincipalUid(0, "corp.com", "zhangsan", new byte[0], null);
+        byte[] nonce = new byte[]{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10};
+        DelegationAuthTbs tbs = new DelegationAuthTbs(
+                2, "agent:x509-01", pu,
+                new Reason("DATA_ANALYSIS", "v2 binding vector"),
+                List.of(new Capability("ca", "issue")),
+                DelegationMode.AUTHORIZED, List.of(), 3600,
+                Instant.parse("2025-08-18T06:53:20Z"), nonce, binding);
+        assertEquals(TBS_V2, encodeHex(tbs.encode()));
+    }
+
+    @Test
     void decodeThenReencodeIsByteStable() {
         Aic a = Aic.parse(decodeHex(AIC_FULL));
         assertEquals(AIC_FULL, encodeHex(a.encode()));
@@ -191,6 +231,10 @@ class DerVectorsTest {
 
         DelegationAuthTbs t = DelegationAuthTbs.parse(decodeHex(TBS));
         assertEquals(TBS, encodeHex(t.encode()));
+
+        DelegationAuthTbs t2 = DelegationAuthTbs.parse(decodeHex(TBS_V2));
+        assertEquals(2, t2.version);
+        assertEquals(TBS_V2, encodeHex(t2.encode()));
 
         PrincipalAuthorization pa = PrincipalAuthorization.parse(decodeHex(PA));
         assertEquals(PA, encodeHex(pa.encode()));

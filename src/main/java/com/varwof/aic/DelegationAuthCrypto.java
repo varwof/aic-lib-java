@@ -10,12 +10,97 @@ import java.security.Signature;
  * Signing and verification of the DelegationAuthorization TBS over a
  * principal/agent public key, per draft-wei-aic-identity-cert §3.
  *
- * <p>The signature input is the DER encoding of the {@link DelegationAuthTbs};
+ * <p>The signature input is the DER encoding of the {@link DelegationAuthTBS};
  * the signature AlgorithmIdentifier is recorded inside the DA so verification
  * is self-describing.
  */
 public final class DelegationAuthCrypto {
+    public static final int DA_VERSION1 = 1;
+    public static final int DA_VERSION2 = 2;
+
     private DelegationAuthCrypto() {
+    }
+
+    /**
+     * Build an {@link AgentKeyBinding} from an agent SPKI DER digest.
+     * When {@code oid} is null/empty, SHA-256 is used as default.
+     *
+     * @throws AicException on empty spkiDer or unsupported algorithm
+     */
+    public static AgentKeyBinding makeAgentKeyBinding(ASN1ObjectIdentifier oid, byte[] spkiDer) {
+        if (spkiDer == null || spkiDer.length == 0) {
+            throw new AicException("agent_key_binding: empty agent SPKI DER");
+        }
+        ASN1ObjectIdentifier algo = (oid == null || oid.equals(new ASN1ObjectIdentifier("0.0.0.0.0"))) ? null : oid;
+        if (algo == null || algo.toString().isEmpty()) {
+            algo = Oids.SHA256;
+        }
+        if (HashAlgorithms.nameForOid(algo).isEmpty()) {
+            throw new AicException("agent_key_binding: unsupported hashAlgo " + algo);
+        }
+        byte[] keyHash = HashAlgorithms.keyHashFromSpki(algo, spkiDer);
+        return new AgentKeyBinding(keyHash, new AlgorithmIdentifier(algo));
+    }
+
+    /** Convenience overload: default SHA-256. */
+    public static AgentKeyBinding makeAgentKeyBinding(byte[] spkiDer) {
+        return makeAgentKeyBinding(null, spkiDer);
+    }
+
+    /**
+     * Validate an agent key binding: keyHash length 1..64, matching the
+     * declared hashAlgo output length.
+     */
+    public static void validateAgentKeyBinding(AgentKeyBinding b) {
+        if (b == null || b.isZero()) {
+            throw new AicException("agent_key_binding: keyHash required for DA version 2");
+        }
+        ASN1ObjectIdentifier algo = b.hashAlgoOid();
+        String name = HashAlgorithms.nameForOid(algo);
+        if (name.isEmpty()) {
+            throw new AicException("agent_key_binding: hashAlgo " + algo.getId() + ": unsupported keyHash algorithm");
+        }
+        Integer want = HashAlgorithms.outputLength(algo);
+        if (want == null) {
+            throw new AicException("agent_key_binding: hashAlgo " + algo.getId() + ": no output length mapping");
+        }
+        if (b.keyHash.length < 1 || b.keyHash.length > 64) {
+            throw new AicException("agent_key_binding: keyHash length " + b.keyHash.length + ": must be 1-64");
+        }
+        if (b.keyHash.length != want) {
+            throw new AicException("agent_key_binding: keyHash length " + b.keyHash.length
+                    + ": must be " + want + " (" + name + ")");
+        }
+    }
+
+    /**
+     * Validate the DA version matrix:
+     * version 1 (or 0) → agentKeyBinding MUST be absent;
+     * version 2 → agentKeyBinding MUST be present and valid;
+     * any other version → rejected.
+     */
+    public static void validateDelegationAuthTbsVersion(DelegationAuthTbs tbs) {
+        if (tbs == null) {
+            throw new AicException("delegation_auth_tbs: nil");
+        }
+        int version = tbs.version;
+        if (version == 0) {
+            version = DA_VERSION1;
+        }
+        switch (version) {
+            case DA_VERSION1 -> {
+                if (tbs.agentKeyBinding != null && !tbs.agentKeyBinding.isZero()) {
+                    throw new AicException("delegation_auth_tbs: version 1: agentKeyBinding must be absent");
+                }
+            }
+            case DA_VERSION2 -> {
+                if (tbs.agentKeyBinding == null || tbs.agentKeyBinding.isZero()) {
+                    throw new AicException("delegation_auth_tbs: version 2: agentKeyBinding is required");
+                }
+                validateAgentKeyBinding(tbs.agentKeyBinding);
+            }
+            default -> throw new AicException("delegation_auth_tbs: unsupported version " + tbs.version + ": must be 1 or 2");
+        }
     }
 
     /**
@@ -27,6 +112,7 @@ public final class DelegationAuthCrypto {
         if (tbs.nonce == null) {
             throw new AicException("DelegationAuthCrypto: TBS nonce is required");
         }
+        validateDelegationAuthTbsVersion(tbs);
         byte[] input = tbs.encode();
         byte[] sig = computeSignature(sigOid, key, input);
         return new DelegationAuthorization(
@@ -74,6 +160,7 @@ public final class DelegationAuthCrypto {
         if (Oids.ED25519.equals(oid) && (da.signatureValue().length != 64)) {
             return false;
         }
+        validateDelegationAuthTbsVersion(tbs);
         byte[] input = tbs.encode();
         return SigAlgorithms.verify(oid, principalKey, input, da.signatureValue());
     }

@@ -17,7 +17,7 @@ import java.util.Objects;
  *
  * <p>Field order: version, agentId, principalUid, reason, capabilities,
  * delegationMode, authorizationConstraints, requestedLifetime, timestamp,
- * nonce.
+ * nonce, [1] EXPLICIT agentKeyBinding (DA version 2 only).
  */
 public final class DelegationAuthTbs {
     public final int version;
@@ -30,11 +30,12 @@ public final class DelegationAuthTbs {
     public final int requestedLifetime;
     public final Instant timestamp;
     public final byte[] nonce;
+    public final AgentKeyBinding agentKeyBinding;
 
     public DelegationAuthTbs(int version, String agentId, PrincipalUid principalUid, Reason reason,
                              List<Capability> capabilities, DelegationMode delegationMode,
                              List<Capability> authorizationConstraints, int requestedLifetime,
-                             Instant timestamp, byte[] nonce) {
+                             Instant timestamp, byte[] nonce, AgentKeyBinding agentKeyBinding) {
         this.version = version;
         this.agentId = Objects.requireNonNull(agentId, "agentId");
         this.principalUid = Objects.requireNonNull(principalUid, "principalUid");
@@ -45,6 +46,16 @@ public final class DelegationAuthTbs {
         this.requestedLifetime = requestedLifetime;
         this.timestamp = Objects.requireNonNull(timestamp, "timestamp");
         this.nonce = nonce == null ? null : nonce.clone();
+        this.agentKeyBinding = agentKeyBinding;
+    }
+
+    /** Convenience constructor without agentKeyBinding (DA version 1). */
+    public DelegationAuthTbs(int version, String agentId, PrincipalUid principalUid, Reason reason,
+                             List<Capability> capabilities, DelegationMode delegationMode,
+                             List<Capability> authorizationConstraints, int requestedLifetime,
+                             Instant timestamp, byte[] nonce) {
+        this(version, agentId, principalUid, reason, capabilities, delegationMode,
+                authorizationConstraints, requestedLifetime, timestamp, nonce, null);
     }
 
     /** Build the TBS from the corresponding (unsigned) {@link Aic}. */
@@ -59,7 +70,8 @@ public final class DelegationAuthTbs {
                 aic.authorizationConstraints(),
                 aic.delegationAuthorization() == null ? 0 : aic.delegationAuthorization().requestedLifetime(),
                 aic.delegationAuthorization() == null ? Instant.EPOCH : aic.delegationAuthorization().timestamp(),
-                aic.delegationAuthorization() == null ? null : aic.delegationAuthorization().nonce());
+                aic.delegationAuthorization() == null ? null : aic.delegationAuthorization().nonce(),
+                null);
     }
 
     public byte[] encode() {
@@ -76,6 +88,9 @@ public final class DelegationAuthTbs {
         elems.add(Der.integer(requestedLifetime));
         elems.add(Der.generalized(timestamp));
         elems.add(new DEROctetString(nonce == null ? new byte[0] : nonce));
+        if (agentKeyBinding != null && !agentKeyBinding.isZero()) {
+            elems.add(Der.explicit(1, asn1Of(agentKeyBinding.encode())));
+        }
         return Der.der(Der.derSequence(elems.toArray(new ASN1Encodable[0])));
     }
 
@@ -103,7 +118,7 @@ public final class DelegationAuthTbs {
         Reason reason = Reason.decode(seq.getObjectAt(ix++));
         List<Capability> caps = decodeCapabilities(seq.getObjectAt(ix++));
         // Remaining elements are strictly ordered per encode()/Go: delegationMode,
-        // optional [0] constraints, requestedLifetime, timestamp, nonce.
+        // optional [0] constraints, requestedLifetime, timestamp, nonce, optional [1] binding.
         if (ix >= seq.size() || !(seq.getObjectAt(ix).toASN1Primitive() instanceof org.bouncycastle.asn1.ASN1Integer modeInt)) {
             throw new AicException("DelegationAuthTbs: delegationMode missing");
         }
@@ -132,10 +147,18 @@ public final class DelegationAuthTbs {
         }
         byte[] nonce = oct.getOctets();
         ix++;
+        AgentKeyBinding binding = null;
+        if (ix < seq.size()) {
+            ASN1Primitive inner = Der.optionalTagContent(seq.getObjectAt(ix), 1);
+            if (inner != null) {
+                binding = AgentKeyBinding.decode(inner);
+                ix++;
+            }
+        }
         if (ix != seq.size()) {
             throw new AicException("DelegationAuthTbs: unexpected trailing elements");
         }
-        return new DelegationAuthTbs(version, agentId, uid, reason, caps, mode, constraints, lifetime, ts, nonce);
+        return new DelegationAuthTbs(version, agentId, uid, reason, caps, mode, constraints, lifetime, ts, nonce, binding);
     }
 
     public static DelegationAuthTbs parse(byte[] derBytes) {
@@ -172,12 +195,14 @@ public final class DelegationAuthTbs {
                 && delegationMode == that.delegationMode
                 && authorizationConstraints.equals(that.authorizationConstraints)
                 && timestamp.equals(that.timestamp)
-                && Arrays.equals(nonce, that.nonce);
+                && Arrays.equals(nonce, that.nonce)
+                && Objects.equals(agentKeyBinding, that.agentKeyBinding);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(version, agentId, principalUid, reason, capabilities,
-                delegationMode, authorizationConstraints, requestedLifetime, timestamp, Arrays.hashCode(nonce));
+                delegationMode, authorizationConstraints, requestedLifetime, timestamp,
+                Arrays.hashCode(nonce), agentKeyBinding);
     }
 }

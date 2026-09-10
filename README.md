@@ -43,12 +43,12 @@ reference:
 | Go (reference) | [varwof/types](https://github.com/varwof/types) | complete |
 | TypeScript | [varwof/aic-jwt](https://github.com/varwof/aic-jwt) | complete (18 tests) |
 | C / OpenSSL | [varwof/openaic](https://github.com/varwof/openaic) | experimental (13 tests) |
-| Java | [**this repo (aic-lib-java)**](https://github.com/varwof/aic-lib-java) | complete (69 tests) |
-| C# | [varwof/aic-lib-dotnet](https://github.com/varwof/aic-lib-dotnet) | complete (69 tests) |
+| Java | [**this repo (aic-lib-java)**](https://github.com/varwof/aic-lib-java) | complete (72 tests) |
+| C# | [varwof/aic-lib-dotnet](https://github.com/varwof/aic-lib-dotnet) | complete (72 tests) |
 
 ## Status
 
-- 69/69 tests green (DER vectors, JWS round-trips, JWT validator, capability
+- 72/72 tests green (DER vectors, JWS round-trips, JWT validator, capability
   matching, cert build/parse, Go conformance).
 - Requires JDK 17+.
 - See [docs/](docs/) for protocol coverage and [docs/conformance.md](docs/conformance.md)
